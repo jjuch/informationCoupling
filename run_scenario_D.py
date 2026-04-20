@@ -39,7 +39,7 @@ from furuta_model import wrap_angle
 from coupling_metrics import theta_binned_te
 from info_metrics import te_logdet
 
-data_subfolder = Path("nonlinear_40ms")
+data_subfolder = Path("nonlinear_50ms_sin_1plusCos")
 
 
 # --------------------
@@ -52,8 +52,8 @@ def hash_array(a: np.ndarray) -> str:
 
 def _default_baseline_paths(cfg: ExperimentConfig):
     data_dir = Path("data") / data_subfolder
-    npz = data_dir / f"ScenarioC_baseline_kappa0_seed{cfg.seed}.npz"
-    js  = data_dir / f"ScenarioC_baseline_kappa0_seed{cfg.seed}.json"
+    npz = data_dir / f"ScenarioD_sin_1plusCos_kappa0_00_seed1.npz"
+    js  = data_dir / f"ScenarioD_sin_1plusCos_kappa0_00_seed1.json"
     return npz, js
 
 

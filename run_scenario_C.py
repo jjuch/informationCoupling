@@ -602,7 +602,7 @@ def plot_state_estimates_time(t, X_true, X_hat, fname="C_state_estimation_time.p
     plt.close()
 
 
-def plot_damping_function(coeffs_hat, P_cc, b0_true, b1_true, theta_grid=None, fname="C_damping_function_fit.png", axs=None, suptitle=None):
+def plot_damping_function(coeffs_hat, P_cc, b0_true, b1_true, theta_grid=None, fname="C_damping_function_fit.png", axs=None, suptitle=None, dpi=120):
     """
     Plot:
       (1) true b(theta)=b0+b1*cos^2(theta) vs estimated b_hat(theta) (Fourier M=2) with ±2σ band
@@ -700,34 +700,40 @@ def plot_damping_function(coeffs_hat, P_cc, b0_true, b1_true, theta_grid=None, f
     fig.tight_layout()
 
     if fname is not None:
-        plt.savefig(fname, dpi=200)
+        plt.savefig(fname, dpi=dpi)
         plt.close(fig)
 
-def make_damping_gif(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, theta_grid=None, gif_path="C_gif_damping_function_fit.gif", fps=12):
+def make_damping_gif(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, theta_grid=None, gif_path="C_gif_damping_function_fit.gif", fps=12, dpi=80):
     if theta_grid is None:
         theta_grid = np.linspace(-np.pi, np.pi, 400)
 
-    fig, axs = plt.subplot(3, 1, figsize=(10, 9.6))
+    fig, axs = plt.subplots(3, 1, figsize=(10, 9.6), sharex=False)
     frames = []
     
     for k in range(len(t_updates)):
+        print(f"Plotting {k + 1} / {len(t_updates)}", end="\r")
         plot_damping_function(
             coeff_hist[k],
             Pcc_hist[k],
             b0_true, b1_true,
             theta_grid=theta_grid,
             axs=axs,
-            suptitle=f"EKF friction learning - update {k+1}/{len(t_updates)}, t={float(t_updates[k]):.2f}s"
+            suptitle=f"EKF friction learning - update {k+1}/{len(t_updates)}, t={float(t_updates[k]):.2f}s", dpi=dpi
         )
 
-        buf = BytesIO()
-        fig.savefig(buf, format="png", dpi=120)
-        buf.seek(0)
-        frames.append(imageio.imread(buf))
-        buf.close()
+        # buf = BytesIO()
+        # fig.savefig(buf, format="png", dpi=dpi)
+        # buf.seek(0)
+        # frames.append(imageio.imread(buf))
+        # buf.close()
+        fig.canvas.draw()
+        rgba_buffer = fig.canvas.buffer_rgba()
+        frame = np.array(rgba_buffer)
+        frames.append(frame)
     
     plt.close(fig)
-    imageio.mimsave(gif_path, frames, fps=fps)
+    # imageio.mimsave(gif_path, frames, fps=fps)
+    imageio.imwrite(gif_path, frames, duration=1000/fps, loop=0)
     print("Saved GIF of daming function: ", gif_path)
 
 def plot_coeff_uncertainty_and_mean(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, fname="C_damping_coeff_learning_summary.png"):

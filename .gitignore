@@ -206,7 +206,15 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# don't upload images
+# don't upload images/data
 *.png 
 *.gif
 /data
+
+# latex
+*.aux
+*.bbl
+*.blg
+*.out
+*.spl
+*.synctex.gz
