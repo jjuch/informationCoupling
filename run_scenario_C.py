@@ -31,7 +31,7 @@ from pathlib import Path
 
 from config import FurutaParams, ExperimentConfig
 from furuta_model import rhs_continuous, rk4_step, wrap_angle, wrap_center, b_theta_true, G_kappa
-from ekf import EKF, EKF_FourierFriction, R_from_sigma_phi, measure_phi, derive_phidot, b_theta_hat_fourier, grad_b_hat
+from ekf import EKF, EKF_FourierFriction, R_from_sigma_phi, measure_phi, derive_phidot, b_theta_hat_fourier, grad_b_hat, make_spd
 
 from info_metrics import te_logdet, logdet_theta_block
 
@@ -72,7 +72,7 @@ def generate_multisine_u(dt, T, amp=1.0, freqs=(0.3, 0.7, 1.1), seed=0, plot=Fal
     return t, u
 
 
-def run_probe_rollout(p, cfg, u, kappa=0.0, n_sub=20, measurement_dim=1, measurement_noise=True, friction_uncertainty=False, seed=1, G_shape='const'):
+def run_probe_rollout(p, cfg, u, kappa=0.0, n_sub=20, measurement_dim=1, measurement_noise=True, friction_uncertainty=False, seed=1, G_shape='const', make_gif=False):
     """Simulate plant and EKF under exogenous input u(t)."""
     dt = cfg.dt
     N = int(cfg.T/dt)
@@ -134,7 +134,11 @@ def run_probe_rollout(p, cfg, u, kappa=0.0, n_sub=20, measurement_dim=1, measure
     coeff_hist = []
     Pcc_hist = []
     t_updates = []
-
+    c_hat_hist = []
+    Pcc_pred_hist = []
+    Pcc_upd_hist = []
+    nis_hist = []
+    Qcc_hist = []
 
     for k in range(N):
         print(f"{k + 1} / {N}", end="\r")
@@ -191,6 +195,10 @@ def run_probe_rollout(p, cfg, u, kappa=0.0, n_sub=20, measurement_dim=1, measure
 
         # measurement update only every N_update steps
         if (k % N_update) == 0:
+            P_pred = ekf.P_pred.copy()
+            if ekf.x_pred.size >= 9:
+                Pcc_pred_hist.append(P_pred[4:9, 4:9].copy())
+                
             # Measurement
             if measurement_dim == 1:
                 phi_meas = float(measure_phi(x_true[0], cfg.sigma_phi, rng))
@@ -210,10 +218,48 @@ def run_probe_rollout(p, cfg, u, kappa=0.0, n_sub=20, measurement_dim=1, measure
             
             # Update
             innov, dx = ekf.update(z)
-            if ekf.x.size >= 9: # augmented EKF
-                coeff_hist.append(ekf.x[4:9].copy())
-                Pcc_hist.append(ekf.P[4:9, 4:9].copy())
+            if ekf.x.size >= 9: # augmented EKF 
+                # compute NIS for φ-only measurement_dim=1 (or general if needed)
+                S = ekf.last_S
+                inn = ekf.last_innov
+                if inn.size == 1:
+                    nis = float((inn[0]**2) / max(1e-12, S[0, 0]))
+                else:
+                    # general NIS
+                    try:
+                        nis = float(inn.T @ np.linalg.inv(S) @ inn)
+                    except np.linalg.LinAlgError:
+                        nis = np.nan
+            else:
+                nis = np.nan
+            nis_hist.append(nis)
+
+            if ekf.x.size >= 9 and np.isfinite(nis):
+                if nis > cfg.nis_hi:
+                    # big surprise => EKF is overconfident / mismatched => inflate coeff covariance strongly:
+                    ekf.P[4:9, 4:9] *= cfg.Pcc_inflate_strong
+                    ekf.P = make_spd(ekf.P)
+            elif nis > cfg.nis_warn:
+                # moderate surprise => mild inflation:
+                ekf.P[4:9, 4:9] *= cfg.Pcc_inflate_mild
+                ekf.P = make_spd(ekf.P)
+            
+            q_used = ekf.update_Qcc_adaptive(
+                nis, q_min=cfg.q_min,
+                q_max=cfg.q_max,
+                gamma=cfg.q_gamma,
+                tau=cfg.q_tau
+            )
+            Qcc_hist.append(q_used if q_used is not None else np.nan)
+
+            # Recovery trigger (degenerate b_hat)
+            # _ = ekf.recover_if_clamped_bhat(p, b_theta_hat_fourier, b_min=1e-4)
+
+            if ekf.x.size >= 9:
+                c_hat_hist.append(ekf.x[4:9].copy())
+                Pcc_upd_hist.append(ekf.P[4:9, 4:9].copy())
                 t_updates.append(k*dt)
+
             
             # Info gain in theta-block
             info_gain[k] = ekf_information_gain_step(P_pred, ekf.P, idx_theta=(1,3))
@@ -282,24 +328,28 @@ def run_probe_rollout(p, cfg, u, kappa=0.0, n_sub=20, measurement_dim=1, measure
     kappa_str = "{:.2f}".format(kappa).replace('.', '_')
     coeffs_hat = ekf.x[4:9]
     P_cc = ekf.P[4:9, 4:9]
-    plot_damping_function(coeffs_hat, P_cc, b0_true, b1_true, fname="C_damping_function_fit_{}_{}_init_pi.png".format(G_shape, kappa_str))
+    # plot_damping_function(coeffs_hat, P_cc, b0_true, b1_true, fname="C_damping_function_fit_{}_{}_init_pi.png".format(G_shape, kappa_str))
+    
+    t_updates = np.asarray(t_updates, float) if t_updates else None
+    c_hat_hist = np.asarray(c_hat_hist, float) if c_hat_hist else None
+    Pcc_pred_hist = np.asarray(Pcc_pred_hist, float) if Pcc_pred_hist else None
+    Pcc_upd_hist = np.asarray(Pcc_upd_hist, float) if Pcc_upd_hist else None
+    nis_hist = np.asarray(nis_hist, float) if nis_hist else None
+    Qcc_hist = np.asarray(Qcc_hist, float) if Qcc_hist else None
 
-    coeff_hist = np.asarray(coeff_hist) if coeff_hist else None
-    Pcc_hist = np.asarray(Pcc_hist) if Pcc_hist else None
-    t_updates = np.asarray(t_updates) if t_updates else None
+    if make_gif:
+        make_damping_gif(
+            t_updates, coeff_hist, Pcc_hist,
+            b0_true=b0_true, b1_true=b1_true, gif_path="C_gif_damping_function_fit_{}_{}_init_pi.gif".format(G_shape, kappa_str)
+        )
 
-    make_damping_gif(
-        t_updates, coeff_hist, Pcc_hist,
-        b0_true=b0_true, b1_true=b1_true, gif_path="C_gif_damping_function_fit_{}_{}_init_pi.gif".format(G_shape, kappa_str)
-    )
+        plot_coeff_uncertainty_and_mean(
+            t_updates, c_hat_hist, Pcc_upd_hist,
+            b0_true=b0_true, b1_true=b1_true,
+            fname="C_damping_coeff_learning_summary_{}_{}".format(G_shape, kappa_str)
+        )
 
-    plot_coeff_uncertainty_and_mean(
-        t_updates, coeff_hist, Pcc_hist,
-        b0_true=b0_true, b1_true=b1_true,
-        fname="C_damping_coeff_learning_summary_{}_{}".format(G_shape, kappa_str)
-    )
-
-    return X, Xhat, u, S_lin, S_nonlin, info_gain, logdetP, dx, TE_global
+    return X, Xhat, u, b0_true, b1_true, S_lin, S_nonlin, info_gain, logdetP, dx, TE_global, (t_updates, c_hat_hist, Pcc_pred_hist, Pcc_upd_hist, nis_hist, Qcc_hist)
 
 
 def binned_2d_median(theta, v, values, theta_bins=31, v_bins=25,
@@ -703,7 +753,7 @@ def plot_damping_function(coeffs_hat, P_cc, b0_true, b1_true, theta_grid=None, f
         plt.savefig(fname, dpi=dpi)
         plt.close(fig)
 
-def make_damping_gif(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, theta_grid=None, gif_path="C_gif_damping_function_fit.gif", fps=12, dpi=80):
+def make_damping_gif(t_updates, coeff_hist, Pcc_upd_hist, b0_true, b1_true, theta_grid=None, gif_path="C_gif_damping_function_fit.gif", fps=12, dpi=80):
     if theta_grid is None:
         theta_grid = np.linspace(-np.pi, np.pi, 400)
 
@@ -714,18 +764,14 @@ def make_damping_gif(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, theta_gr
         print(f"Plotting {k + 1} / {len(t_updates)}", end="\r")
         plot_damping_function(
             coeff_hist[k],
-            Pcc_hist[k],
+            Pcc_upd_hist[k],
             b0_true, b1_true,
             theta_grid=theta_grid,
             axs=axs,
             suptitle=f"EKF friction learning - update {k+1}/{len(t_updates)}, t={float(t_updates[k]):.2f}s", dpi=dpi
         )
 
-        # buf = BytesIO()
-        # fig.savefig(buf, format="png", dpi=dpi)
-        # buf.seek(0)
-        # frames.append(imageio.imread(buf))
-        # buf.close()
+
         fig.canvas.draw()
         rgba_buffer = fig.canvas.buffer_rgba()
         frame = np.array(rgba_buffer)
@@ -736,13 +782,13 @@ def make_damping_gif(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, theta_gr
     imageio.imwrite(gif_path, frames, duration=1000/fps, loop=0)
     print("Saved GIF of daming function: ", gif_path)
 
-def plot_coeff_uncertainty_and_mean(t_updates, coeff_hist, Pcc_hist, b0_true, b1_true, fname="C_damping_coeff_learning_summary.png"):
+def plot_coeff_uncertainty_and_mean(t_updates, coeff_hist, Pcc_upd_hist, b0_true, b1_true, fname="C_damping_coeff_learning_summary.png"):
     
     names = ["c0", "c1", "s1", "c2", "s2"]
 
     # 2σ over time
     sigma2 = 2.0 * np.sqrt(np.maximum(
-        np.diagonal(Pcc_hist, axis1=1, axis2=2), 0.0
+        np.diagonal(Pcc_upd_hist, axis1=1, axis2=2), 0.0
     ))
 
     # true coefficients implied by b0 + b1 cos^2
@@ -790,7 +836,7 @@ def main():
     # probing input
     t, u = generate_multisine_u(cfg.dt, cfg.T, amp=0.75, freqs=(0.2, 0.35, 0.6, 0.9), seed=0)
 
-    X, Xhat, u_used, S_lin, S_nonlin, info_gain, logdetP, dx, TE_global, frict_coeff_hist = run_probe_rollout(
+    X, Xhat, u_used, b0_true, b1_true, S_lin, S_nonlin, info_gain, logdetP, dx, TE_global, frict_coeff_hist = run_probe_rollout(
         p, cfg, u, kappa=kappa, 
         n_sub=20, measurement_noise=measurement_noise, 
         friction_uncertainty=friction_uncertainty,

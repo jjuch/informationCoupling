@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 TWOPI = 2.0 * np.pi
 
+
 def wrap_angle(a):
     """Wrap angle to (-pi, pi]."""
     return (a + np.pi) % (2.0 * np.pi) - np.pi
@@ -27,25 +28,40 @@ def wrap_state_angles(x, phi_center=0.0, theta_center=np.pi):
     return x
 
 
-def G_kappa(q, kappa: float, shape: str = "const"):
+def G_kappa(q, kappa: float, M, p, shape: str = "const"):
     """Skew-symmetric gyroscopic coupling matrix."""
     phi, theta = q
+    S = np.array([[0.0, 1.0], [-1.0, 0.0]], dtype=float)
     if shape == "const":
         s = 1.0
+        G = kappa * s * S
     elif shape == "cos":
         s = np.cos(theta)
+        G = kappa * s * S
     elif shape == "1+theta2":
         s = 1.0 + theta**2
+        G = kappa * s * S
     elif shape == "sin2":
         eps = 0.02
         beta = 5
         sigma = lambda z: 1/(1 + np.exp(-z))
         s = np.sin(theta)**2 * (eps + (1 - eps) * sigma(beta*np.sin(theta)))
+        G = kappa * s * S
     elif shape == "sin_1plusCos":
         s = np.sin(theta)*(1 + np.cos(theta))
+        G = kappa * s * S
+    elif shape == "sin":
+        s = np.sin(theta)
+        G = kappa * s * S
+    elif shape == "sin_MSM":
+        # Mass-shaped skew term: G = kappa * nu * sin(theta) * M S M
+        # Choose nu so that at theta=±pi/2, nu*M S M ≈ S (comparable magnitude to constant-S design).
+        nu = 1.0 / (p.beta * (p.alpha + p.beta))
+        s = np.sin(theta)
+        G = kappa * nu * s * (M @ S @ M)
     else:
         raise ValueError("Unknown shape")
-    return kappa * s * np.array([[0.0, 1.0], [-1.0, 0.0]])
+    return G
 
 
 def b_theta_true(theta, b0_true, b1_true):
@@ -109,7 +125,7 @@ def rhs_continuous(x, u, p, kappa=0.0, G_shape="const", b_theta_true=None):
     qd = np.array([phidot, thetadot])
 
     M, C, gvec = furuta_M_C_g(q, qd, p)
-    G = G_kappa(q, kappa, shape=G_shape)
+    G = G_kappa(q, kappa, M, p, shape=G_shape)
 
     if b_theta_true is None:
         b_theta = p.b_theta_nom

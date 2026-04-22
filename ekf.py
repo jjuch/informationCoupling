@@ -193,6 +193,10 @@ class EKF:
 
         self.rhs_continuous = rhs_continuous
 
+        # storing
+        self.last_S = None
+        self.last_innov = None
+
     def _f_discrete(self, x, u):
         # Discrete propagation via RK4 on continuous dynamics (nominal friction)
         return rk4_step(self.rhs_continuous, x, u, self.dt, self.p,
@@ -239,6 +243,8 @@ class EKF:
         # Kalman update (real measurement)
         S = H @ self.P_pred @ H.T + R
         S = 0.5*(S + S.T)
+        self.last_S = S
+
         
         # More stable than inv for small S
         try:
@@ -250,6 +256,7 @@ class EKF:
         K = self.P_pred @ H.T @ S_inv
 
         innov = z - z_pred
+        self.last_innov = innov
         x_upd = self.x_pred + K @ innov
 
         # Joseph stabilized covariance update: PSD-preserving
@@ -259,10 +266,92 @@ class EKF:
 
         # state correction for TE
         dx = x_upd - self.x_pred
-    
         self.x, self.P = x_upd, P_upd
 
         return innov, dx
+
+    def update_Qcc_adaptive(self, nis, 
+                            q_min=1e-9,
+                            q_max=1e-6,
+                            gamma=2.0,
+                            tau=-25.0):
+        
+        """
+        Adaptive coefficient process noise based on:
+        - current coefficient uncertainty (logdet Pcc)
+        - innovation consistency (NIS)
+
+        Keeps Qcc large while learning, small once learned.
+        """
+        if self.x.size < 9:
+            return None
+        
+        Pcc = self.P[4:9, 4:9]
+            
+        # robust logdet
+        sign, ld = np.linalg.slogdet(Pcc + 1e-12*np.eye(5))
+        if sign <= 0 or not np.isfinite(ld):
+            ld = tau + 10.0
+
+        # sigmoid: 1 when uncertain, 0 when confident
+        s = 1.0 / (1.0 + np.exp(-gamma * (ld - tau)))
+
+        # NIS scaling (phi-only -> target = 1)
+        if nis is None or not np.isfinite(nis):
+            ratio = 1.0
+        else:
+            ratio = float(np.clip(nis / 1.0, 0.25, 4.0))
+
+        q = (q_min + (q_max - q_min) * s) * ratio
+
+        # update Q block
+        Qnew = self.Q.copy()
+        Qnew[4:9, 4:9] = q * np.eye(5)
+        self.Q = 0.5 * (Qnew + Qnew.T)
+
+        return q
+
+
+
+    def recover_if_clamped_bhat(self, p, b_theta_hat_fourier, b_min=1e-4):
+        """
+        Detect degenerate regime where b_hat(theta) == b_min (flat) across theta grid
+        and reset coefficient mean/cov to a sane prior.
+
+        Returns True if recovery triggered.
+        """
+        import numpy as np
+
+        if self.x.size < 9:
+            return False
+
+        coeffs = self.x[4:9]
+        # A typical failure symptom: negative c0 large enough to clamp all theta
+        if coeffs[0] > 0.0:
+            return False
+
+        theta_grid = np.linspace(-np.pi, np.pi, 200)
+        b_test = b_theta_hat_fourier(theta_grid, coeffs, b_min=b_min)
+
+        # "flat at b_min" test
+        if np.max(b_test) - np.min(b_test) < 1e-12 and np.min(b_test) <= b_min + 1e-12:
+            # reset to nominal even coefficients
+            c0_nom = p.b0_nom + 0.5*p.b1_nom
+            c2_nom = 0.5*p.b1_nom
+            self.x[4:9] = np.array([c0_nom, 0.0, 0.0, c2_nom, 0.0], dtype=float)
+
+            # inflate covariance of coeffs to allow relearning
+            self.P[4:9, 4:9] *= 50.0
+            self.P = make_spd(self.P)
+
+            # temporarily allow learning by boosting Qcc
+            Qnew = self.Q.copy()
+            Qnew[4:9, 4:9] = 1e-8 * np.eye(5)
+            self.Q = 0.5*(Qnew + Qnew.T)
+            return True
+        
+        return False
+
     
 
     

@@ -44,7 +44,7 @@ class ExperimentConfig:
 
     # TE settings
     te_lag: int = 3               # VAR order for TE (fixed first)
-    te_start_time: float = 1.0    # ignore first second for TE
+    te_start_time: float = 0.10    # ignore part for TE in seconds
 
     # initial conditions [phi,theta,phidot,thetadot]
     x0_true: np.ndarray = field(default_factory=lambda: np.array([0.0, np.pi/2, 0.0, 0.0], dtype=float))
@@ -60,6 +60,15 @@ class ExperimentConfig:
 
     # process noise (tune later)
     Q: np.ndarray = field(default_factory=lambda: np.diag([1e-7, 1e-5, 1e-5, 1e-2]).astype(float))
+    nis_hi: float =  20000.0   # strong inconsistency trigger (phi-only => p=1)
+    nis_warn: float = 175000.0   # mild trigger
+    Pcc_inflate_strong: float = 50.0
+    Pcc_inflate_mild: float = 10.0
+    # Adaptive Qcc params
+    q_min: float = 1e-7
+    q_max: float = 1e-5
+    q_gamma:float = 2.0
+    q_tau: float = -25.0
 
     # estimater update period
     update_period: float = 0.05 # 50 ms
@@ -68,4 +77,4 @@ class ExperimentConfig:
     # kappas: tuple = (-0.10, 0.10)
     # kappas: tuple = (-0.2, -0.10, -0.05, 0.05, 0.10, 0.2)
     # kappas: tuple = (0.2/1.2, )
-    kappas: tuple = (0.0, 0.1, 0.2)
+    kappas: tuple = (0.09, 0.2, 0.25, 0.4, 0.0)
