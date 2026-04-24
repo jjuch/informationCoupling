@@ -514,7 +514,8 @@ def main():
         measurement_noise = bool(meta["mearurement_noise"])
     else:
         measurement_noise = True
-    friction_uncertainty = bool(meta.get("friction_uncertainty", True))
+    # friction_uncertainty = bool(meta.get("friction_uncertainty", True))
+    friction_uncertainty = False
 
     # --- Baseline binned maps already stored ---
     theta_centers = np.array(base["theta_centers"], dtype=float)

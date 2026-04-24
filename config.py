@@ -77,4 +77,4 @@ class ExperimentConfig:
     # kappas: tuple = (-0.10, 0.10)
     # kappas: tuple = (-0.2, -0.10, -0.05, 0.05, 0.10, 0.2)
     # kappas: tuple = (0.2/1.2, )
-    kappas: tuple = (0.09, 0.2, 0.25, 0.4, 0.0)
+    kappas: tuple = (0.0, 0.09, 0.2, 0.25, 0.4)
