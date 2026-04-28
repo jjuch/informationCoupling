@@ -1,0 +1,108 @@
+{
+  "defaults": {
+    "dt": 0.005,
+    "n_sub": 5,
+    "T_total": 30.0,
+    "T_burn": 5.0,
+    "use_sat": true,
+    "u_max_override": 30.0,
+
+    "theta_ref": {
+      "amp": 2.0943951023931953,
+      "phase": 0.0,
+      "omega_mode": "small_angle"
+    },
+
+    "phi_ref": {
+      "enabled": true,
+      "type": "sin_with_decay",
+      "amp0": 4.71238898038469,
+      "scale": 1.0, 
+      "omega_mult": 1.0,
+      "phase": 0.0,
+      "tau": 10.0,
+      "freeze_after": 5.0
+    },
+
+    "controller": {
+      "lambda_mult": 1.0,
+      "K_smc": 65.0,
+      "phi_s": 0.15,
+      "eps_inv": 0.002,
+      "Kphi_p": 0.5,
+      "Kphi_d": 0.5,
+      "use_sat": true,
+      "u_max_override": 30.0
+    },
+
+    "singular_zone": {
+      "enabled": true,
+      "deg_zone": 10.0,
+      "bth_min": 0.02,
+      "K_smc_sing": 1.0,
+      "freeze_ff": true
+    },
+    
+    "coupling": {
+      "eps": 1e-6,
+      "norm": "sv",
+      "perturb": "basis",
+      "nbins": 31,
+      "min_count": 25
+    },
+
+    "plots": {
+      "show": true,
+      "fft_max_hz": 6.0
+    }
+  },
+
+  "cases": [
+    {
+      "kappa": 0.0,
+      "G_shape": "const",
+      "note": "Perfected baseline tuning for kappa=0",
+      "overrides": {
+        "controller": {
+          "lambda_mult": 1.0,
+          "K_smc": 65.0,
+          "Kphi_p": 0.5,
+          "Kphi_d": 0.5,
+          "eps_inv": 0.002,
+          "phi_s": 0.15,
+          "use_sat": true,
+          "u_max_override": 30.0
+        },
+        "plots": {
+          "show": true
+        }
+      }
+    },
+
+    {
+      "kappa": 0.09,
+      "G_shape": "sin_MSM",
+      "note": "Initial tuning for kappa=0.09 with mass-shaped gyro coupling",
+      "overrides": {
+        "singular_zone": {
+          "enabled": true,
+          "K_smc_sing": 20.0,
+          "freeze_ff": true
+        },
+        "controller":{
+          "lambda_mult": 3.0,
+          "K_smc": 25.0,
+          "Kphi_p": 0.5,
+          "Kphi_d": 0.5,
+          "eps_inv": 0.005,
+          "phi_s": 0.15,
+          "use_sat": true,
+          "u_max_override": 30.0
+        },
+        "phi_ref": {
+          "scale": 0.5
+        }
+      }
+    }
+  ]
+}
