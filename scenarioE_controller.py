@@ -24,58 +24,152 @@ def thetadot_ref(t, omega, amp, phase):
 def thetaddot_ref(t, omega, amp, phase):
     return -amp * (omega**2) * np.sin(omega * t + phase)
 
-def phi_ref_fun(t, omega, phi_cfg):
-    if not phi_cfg["enabled"]:
-        return 0.0
-    amp0 = float(phi_cfg.get("amp0", 0.0))
-    scale_amp = float(phi_cfg.get("scale", 1.0))
-    omega_mult = float(phi_cfg.get("omega_mult", 1.0))
-    phase = float(phi_cfg.get("phase", 0.0))
-    
-    # optional frequency decay parameters
-    omega_lo = float(phi_cfg.get("omega_lo", omega_mult * omega))
-    omega_hi = float(phi_cfg.get("omega_hi", omega_mult * omega))
-    tau_omega = float(phi_cfg.get("tau_omega", 1.0))   # seconds
 
-    tau = float(phi_cfg.get("tau", 10.0))
-    freeze_after = float(phi_cfg.get("freeze_after", 0.0))
-    w = omega_mult * omega
-
-    if t < freeze_after:
-        a = np.exp(-t / tau)
-    else:
-        a = np.exp(-freeze_after / tau)
-
-    if phi_cfg.get("type") == "sin_with_decay_freq_decay":
-        # frequency schedule and phase integral
-        w_lo = omega_lo
-        w_hi = omega_hi
-        varphi = phase + w_lo*t + (w_hi - w_lo)*tau_omega*(1.0 - np.exp(-t/tau_omega))
-    elif phi_cfg.get("type") == "sin_with_decay":
-        varphi = w * t + phase
-
-    return scale_amp * amp0 * a * np.sin(varphi)
-
-
-def phidot_ref_fun(t, omega, phi_cfg):
-    if not phi_cfg["enabled"]:
-        return 0.0
-    amp0 = float(phi_cfg.get("amp0", 0.0))
-    scale_amp = float(phi_cfg.get("scale", 1.0))
-    # print("scale_amp: ", scale_amp)
-    omega_mult = float(phi_cfg.get("omega_mult", 1.0))
-    phase = float(phi_cfg.get("phase", 0.0))
-    tau = float(phi_cfg.get("tau", 10.0))
-    freeze_after = float(phi_cfg.get("freeze_after", 0.0))
-    w = omega_mult * omega
-
+def _amp_envelope(t, tau, freeze_after):
+    """Amplitude envelope e^{-t/tau} until freeze_after, then constant."""
     if t < freeze_after:
         a = np.exp(-t / tau)
         da = -np.exp(-t / tau) / tau
     else:
         a = np.exp(-freeze_after / tau)
         da = 0.0
-    return scale_amp * amp0 * (da * np.sin(w*t + phase) + a * w * np.cos(w*t + phase))
+    return a, da
+
+
+def _omega_phi_and_phase(t, omega_base, omega_hi_mult, omega_lo_mult, tau_omega, phase0=0.0, mode="linear"):
+    """
+    Returns instantaneous omega_phi(t) [rad/s] and phase phi(t) = ∫ omega_phi dt + phase0.
+    Schedules omega_phi from omega_hi_mult*omega_base -> omega_lo_mult*omega_base over tau_omega seconds,
+    then holds at omega_lo_mult*omega_base.
+    """
+    w_hi = omega_hi_mult * omega_base
+    w_lo = omega_lo_mult * omega_base
+
+    if tau_omega <= 0.0:
+        # no decay, constant
+        return w_lo, phase0 + w_lo * t
+
+    if mode == "linear":
+        if t < tau_omega:
+            w_t = w_hi + (w_lo - w_hi) * (t / tau_omega)
+            # phase = ∫(w_hi + (w_lo-w_hi)t/tau) dt = w_hi t + 0.5(w_lo-w_hi)t^2/tau
+            phase = phase0 + w_hi * t + 0.5 * (w_lo - w_hi) * (t**2) / tau_omega
+        else:
+            w_t = w_lo
+            # phase at tau + w_lo*(t-tau)
+            phase_tau = phase0 + w_hi * tau_omega + 0.5 * (w_lo - w_hi) * tau_omega
+            phase = phase_tau + w_lo * (t - tau_omega)
+
+        return w_t, phase
+
+    elif mode == "exp_hit_tau":
+        # Smooth exponential-like schedule that hits w_lo exactly at t=tau_omega, then holds.
+
+        if t < tau_omega:
+            # normalized exponential factor in [0,1]
+            a = (np.exp(-t / tau_omega) - np.exp(-1.0)) / (1.0 - np.exp(-1.0))
+            w_t = w_lo + (w_hi - w_lo) * a
+
+            # phase integral for this normalized schedule:
+            # w(t)=w_lo+(w_hi-w_lo)*a(t)
+            # a(t)= (e^{-t/tau}-e^{-1})/(1-e^{-1})
+            # ∫ a(t) dt = [ -tau e^{-t/tau} - e^{-1} t ] / (1-e^{-1}) + const
+            denom = (1.0 - np.exp(-1.0))
+            phase = phase0 + w_lo * t + (w_hi - w_lo) * (
+                (-tau_omega * np.exp(-t / tau_omega) - np.exp(-1.0) * t + tau_omega) / denom
+            )
+        else:
+            w_t = w_lo
+            # compute phase at tau_omega using t=tau_omega in the formula above
+            denom = (1.0 - np.exp(-1.0))
+            phase_tau = phase0 + w_lo * tau_omega + (w_hi - w_lo) * (
+                (-tau_omega * np.exp(-1.0) - np.exp(-1.0) * tau_omega + tau_omega) / denom
+            )
+            phase = phase_tau + w_lo * (t - tau_omega)
+
+        return w_t, phase
+
+    else:
+        raise ValueError("mode must be 'linear' or 'exp_hit_tau'")
+
+
+
+def phi_ref_fun(t, omega, phi_cfg):
+    if not phi_cfg["enabled"]:
+        return 0.0
+    
+    typ = phi_cfg.get("type", "sin_with_decay")
+    amp0 = float(phi_cfg.get("amp0", 0.0))
+    scale_amp = float(phi_cfg.get("scale", 1.0))
+    phase = float(phi_cfg.get("phase", 0.0))
+
+    tau = float(phi_cfg.get("tau", 10.0))
+    freeze_after = float(phi_cfg.get("freeze_after", 0.0))
+
+    a, _ = _amp_envelope(t, tau, freeze_after)
+
+    if typ == "sin_with_decay_freq_decay":
+        omega_hi_mult = float(phi_cfg.get("omega_hi_mult", 1.0))
+        omega_lo_mult = float(phi_cfg.get("omega_lo_mult", 1.0))
+        tau_omega = float(phi_cfg.get("tau_omega", 1.0))
+        mode = phi_cfg.get("freq_decay_mode", "linear")  # "linear" or "exp_hit_tau"
+
+        w_t, phase = _omega_phi_and_phase(t, omega, omega_hi_mult, omega_lo_mult, tau_omega, phase0=phase, mode=mode)
+        return scale_amp * amp0 * a * np.sin(phase)
+
+    elif typ == "sin_with_decay":
+        omega_mult = float(phi_cfg.get("omega_mult", 1.0))
+        w = omega_mult * omega
+        return scale_amp * amp0 * a * np.sin(w * t + phase)
+
+    else:
+        raise ValueError(f"[phi_ref_fun] The type {typ} does not exist.")
+
+
+
+def phidot_ref_fun(t, omega, phi_cfg):
+    if not phi_cfg["enabled"]:
+        return 0.0
+    
+    typ = phi_cfg.get("type", "sin_with_decay")
+
+    amp0 = float(phi_cfg.get("amp0", 0.0))
+    scale_amp = float(phi_cfg.get("scale", 1.0))
+    phase = float(phi_cfg.get("phase", 0.0))
+
+    tau = float(phi_cfg.get("tau", 10.0))
+    freeze_after = float(phi_cfg.get("freeze_after", 0.0))
+
+    a, da = _amp_envelope(t, tau, freeze_after)
+
+    if typ == "sin_with_decay_freq_decay":
+        omega_hi_mult = float(phi_cfg.get("omega_hi_mult", 1.0))
+        omega_lo_mult = float(phi_cfg.get("omega_lo_mult", 1.0))
+        tau_omega = float(phi_cfg.get("tau_omega", 1.0))
+        mode = phi_cfg.get("freq_decay_mode", "linear")
+
+        # instantaneous omega_phi(t) and phase integral
+        w_t, phase = _omega_phi_and_phase(
+            t, omega,
+            omega_hi_mult=omega_hi_mult,
+            omega_lo_mult=omega_lo_mult,
+            tau_omega=tau_omega,
+            phase0=phase,
+            mode=mode
+        )
+
+        # phi_ref = A a(t) sin(phase(t))
+        # phidot_ref = A [ da sin(phase) + a cos(phase) * d(phase)/dt ]
+        # and d(phase)/dt = w_t by construction
+        return scale_amp * amp0 * (da * np.sin(phase) + a * np.cos(phase) * w_t)
+    elif typ == "sin_with_decay":
+        omega_mult = float(phi_cfg.get("omega_mult", 1.0))
+        w = omega_mult * omega
+        # d/dt [A a(t) sin(w t + phase)] = A[ da sin(.) + a w cos(.) ]
+        return scale_amp * amp0 * (da * np.sin(w * t + phase) + a * w * np.cos(w * t + phase))
+
+    else:
+        raise ValueError(f"[phidot_ref_fun] The type {typ} does not exist.")
 
 
 def theta_affine_terms(x, p, kappa, G_shape):
@@ -104,6 +198,43 @@ def in_singular_zone(theta, b_theta, sing_cfg):
     near_pi2 = abs(eta - np.pi/2) < np.deg2rad(deg_zone)
     weak_input = abs(b_theta) < bth_min
     return bool(near_pi2 or weak_input)
+
+
+def smoothstep(z):
+    """C^1 smooth step from 0 to 1 for z in [0,1]."""
+    z = float(np.clip(z, 0.0, 1.0))
+    return z*z*(3.0 - 2.0*z)
+
+def singular_weight(theta, b_theta, sing_cfg):
+    """
+    Continuous weight w in [0,1] indicating 'how singular' we are.
+    w≈1 deep in singular region, w≈0 far away.
+    Combines angle proximity to pi/2 and small b_theta.
+    """
+    if not sing_cfg["enabled"]:
+        return 0.0
+
+    deg_zone = float(sing_cfg.get("deg_zone", 10.0))
+    bth_min = float(sing_cfg.get("bth_min", 0.02))
+
+    # angle proximity: eta close to pi/2
+    eta = abs(theta_dev(theta))
+    dist = abs(eta - np.pi/2)
+    band = np.deg2rad(deg_zone)
+
+    # map dist=0 -> 1, dist>=band -> 0
+    w_ang = 1.0 - smoothstep(dist / max(1e-12, band))
+
+    # b_theta proximity: small b_theta -> 1, big b_theta -> 0
+    # use a soft threshold around bth_min
+    babs = abs(b_theta)
+    w_b = 1.0 - smoothstep(babs / max(1e-12, bth_min))
+
+    # combine (OR-like): if either is singular, weight increases
+    w = max(w_ang, w_b)
+
+    return float(np.clip(w, 0.0, 1.0))
+
 
 def control_law(x, t, p, omega, cfg, thdd_ff_prev):
     ctrl = cfg["controller"]
@@ -134,26 +265,34 @@ def control_law(x, t, p, omega, cfg, thdd_ff_prev):
 
     f_theta, b_theta = theta_affine_terms(x, p, kappa, G_shape)
     sing = in_singular_zone(theta, b_theta, sing_cfg)
+    w = singular_weight(theta, b_theta, sing_cfg)
 
     freeze_ff = bool(sing_cfg.get("freeze_ff", True))
     if sing and freeze_ff and np.isfinite(thdd_ff_prev):
-        thdd_ff = thdd_ff_prev
+        thdd_ff = (1.0 - w) * thdd_r + w * thdd_ff_prev
     else:
         thdd_ff = thdd_r
 
     K_smc = float(ctrl["K_smc"])
     K_smc_sing = float(sing_cfg.get("K_smc_sing", K_smc))
-    K_here = K_smc_sing if sing else K_smc
+    K_here = (1.0 - w) * K_smc + w * K_smc_sing
 
     phi_s = float(ctrl["phi_s"])
-    thdd_des = thdd_ff - K_here * sat(s / phi_s)
+    
+    # --- singular-safe desired acceleration component ---
+    # In the singular region, bias toward damping velocity error rather than position error:
+    kd_sing = float(sing_cfg.get("kd_sing", 2.0))
+    thdd_des_sing = -kd_sing * (thetadot - thd_r)
+
+    thdd_des_nom = thdd_ff - K_here * sat(s / phi_s)
+    thdd_des = (1.0 - w) * thdd_des_nom + w * thdd_des_sing
 
     eps_inv = float(ctrl["eps_inv"])
     u_track = (b_theta / (b_theta*b_theta + eps_inv)) * (thdd_des - f_theta)
 
     Kphi_p = float(ctrl["Kphi_p"])
     Kphi_d = float(ctrl["Kphi_d"])
-    u_phi = -Kphi_p * (phi - ph_r) - Kphi_d * (phidot - phd_r)
+    u_phi = -Kphi_p * (wrap_center(phi, 0.0) - ph_r) - Kphi_d * (phidot - phd_r)
 
     u = u_track + u_phi
 

@@ -74,7 +74,7 @@
           "u_max_override": 30.0
         },
         "plots": {
-          "show": true
+          "show": false
         }
       }
     },
@@ -87,20 +87,30 @@
         "singular_zone": {
           "enabled": true,
           "K_smc_sing": 20.0,
-          "freeze_ff": true
+          "freeze_ff": true,
+          "kd_sing": 4.0
         },
         "controller":{
-          "lambda_mult": 3.0,
-          "K_smc": 25.0,
-          "Kphi_p": 0.5,
-          "Kphi_d": 0.5,
+          "lambda_mult": 1.0,
+          "K_smc": 65.0,
+          "Kphi_p": 0.9,
+          "Kphi_d": 0.7,
           "eps_inv": 0.005,
           "phi_s": 0.15,
           "use_sat": true,
-          "u_max_override": 30.0
+          "u_max_override": 15.0
         },
         "phi_ref": {
-          "scale": 0.5
+          "enabled": true,
+          "type": "sin_with_decay_freq_decay",
+          "scale": 0.30,
+          "omega_lo_mult": 1.0,
+          "omega_hi_mult": 1.5,
+          "tau_omega": 5.0,
+          "freq_decay_mode": "exp_hit_tau"
+        },
+        "theta_ref": {
+          "phase": 1.3
         }
       }
     }
