@@ -84,15 +84,19 @@ def case_paths(data_dir: Path, kappa: float, G_shape: str, cfg_hash: str):
 # ============================================================
 # Main simulation + plots
 # ============================================================
-def run_or_load_case(cases_cfg, kappa, G_shape, data_dir: Path, show_plots=True):
+def run_or_load_case(cases_cfg, kappa, G_shape, data_dir: Path, show_plots=True, hash_overwrite=None):
     p = FurutaParams()
     cfg = select_case(cases_cfg, kappa, G_shape)
-    cfg_hash = hash_config(cfg)
+    if hash_overwrite is None:
+        cfg_hash = hash_config(cfg)
+    else:
+        cfg_hash = hash_overwrite
     npz_path, json_path = case_paths(data_dir, kappa, G_shape, cfg_hash)
 
     if npz_path.exists() and json_path.exists():
         base, meta = _load_data(npz_path, json_path)
-        if meta_matches(meta, kappa, G_shape, cfg_hash):
+        print('here')
+        if meta_matches(meta, kappa, G_shape, cfg_hash) or hash_overwrite is not None:
             print(f"[CACHE] {npz_path.name}")
             if show_plots and cfg["plots"]["show"]:
                 plot_states_with_refs(base, cfg, meta_title=f"Scenario E (cached) kappa={kappa}, {G_shape}")
@@ -141,7 +145,7 @@ def main():
 
     # Baseline stabilized orbit
     print("==== run kappa 0.0 ====")
-    base0, meta0, cfg0 = run_or_load_case(cases_cfg, 0.0, "const", data_dir, show_plots=True)
+    base0, meta0, cfg0 = run_or_load_case(cases_cfg, 0.0, "const", data_dir, show_plots=True, hash_overwrite="f337ab48")
 
     # Test case: kappa=0.09, sin_MSM
     print("==== run kappa 0.09 ====")

@@ -69,6 +69,60 @@ def _segments_from_mask(t, mask):
     return segs
 
 
+def _theta_piecewise_refs_from_sing(t, theta, thetadot, sing_mask, omega, amp, phase):
+    """
+    Reconstruct the piecewise theta references:
+      - outside singular zone: sinusoid
+      - inside singular zone: linear continuation from entry slope/value
+
+    Returns:
+      th_ref_used (absolute theta ref),
+      thd_ref_used (thetadot ref)
+    """
+    t = np.asarray(t, float)
+    theta = np.asarray(theta, float)
+    thetadot = np.asarray(thetadot, float)
+    sing_mask = np.asarray(sing_mask, bool)
+
+    # Nominal sinusoidal refs
+    th_ref_nom = np.pi + amp * np.sin(omega * t + phase)
+    thd_ref_nom = amp * omega * np.cos(omega * t + phase)
+
+    # Start with nominal everywhere
+    th_ref_used = th_ref_nom.copy()
+    thd_ref_used = thd_ref_nom.copy()
+
+    # Detect entry indices (rising edges)
+    in_zone = sing_mask
+    if in_zone.size == 0:
+        return th_ref_used, thd_ref_used
+
+    entry_idx = np.where(in_zone & ~np.r_[False, in_zone[:-1]])[0]
+    if entry_idx.size == 0:
+        return th_ref_used, thd_ref_used
+
+    # For each contiguous segment, build linear ref inside
+    for idx0 in entry_idx:
+        # find segment end
+
+        j = idx0
+        while j + 1 < len(in_zone) and in_zone[j + 1]:
+            j += 1
+
+        t0 = t[idx0]
+        eta0 = wrap_center(theta[idx0] - np.pi, np.pi)          # wrapped theta-pi at entry
+        thd0 = float(thetadot[idx0])                  # slope at entry
+
+        seg_t = t[idx0:j+1]
+        eta_ref = eta0 + thd0 * (seg_t - t0)
+
+        th_ref_used[idx0:j+1] = np.pi + eta_ref
+        thd_ref_used[idx0:j+1] = thd0
+
+    return th_ref_used, thd_ref_used
+
+
+
 
 def plot_states_with_refs(base, cfg, meta_title="Scenario E"):
     
@@ -105,6 +159,25 @@ def plot_states_with_refs(base, cfg, meta_title="Scenario E"):
 
     th_ref = np.pi + amp * np.sin(omega*t + phase)
     thd_ref = amp * omega * np.cos(omega*t + phase)
+    
+    # singular mask (if available)
+    sing = base.get("SING", None)
+    if sing is not None:
+        sing_mask = (np.asarray(sing, float)[:t.size] > 0.5)
+    else:
+        sing_mask = np.zeros_like(t, dtype=bool)
+
+    # reconstruct piecewise refs (linear in singular zone)
+    th_ref_used, thd_ref_used = _theta_piecewise_refs_from_sing(
+        t=t,
+        theta=X[:, 1],
+        thetadot=X[:, 3],
+        sing_mask=sing_mask,
+        omega=omega,
+        amp=amp,
+        phase=phase
+    )
+
 
 
     fig, axes = plt.subplots(
@@ -134,7 +207,8 @@ def plot_states_with_refs(base, cfg, meta_title="Scenario E"):
 
     # 3) theta-pi
     axes[2].plot(t, theta_dev(X[:, 1]), lw=1.2, label="theta-pi")
-    axes[2].plot(t, theta_dev(th_ref), lw=1.0, ls="--", label="theta_ref-pi")
+    axes[2].plot(t, theta_dev(th_ref), lw=1.0, ls="--", alpha=0.45, label="theta_ref-pi")
+    axes[2].plot(t, theta_dev(th_ref_used), lw=1.2, ls="--", label="theta_ref_used (piecewise)")
     axes[2].axhline(+amp, ls=":", alpha=0.5)
     axes[2].axhline(-amp, ls=":", alpha=0.5)
     axes[2].set_ylabel("theta-pi [rad]")
@@ -153,7 +227,8 @@ def plot_states_with_refs(base, cfg, meta_title="Scenario E"):
 
     # 5) thetadot
     axes[4].plot(t, X[:, 3], lw=1.2, label="thetadot")
-    axes[4].plot(t, thd_ref, lw=1.0, ls="--", label="thetadot_ref")
+    axes[4].plot(t, thd_ref, lw=1.0, ls="--", alpha=0.45, label="thetadot_ref")
+    axes[4].plot(t, thd_ref_used, lw=1.2, ls="--", label="thetadot_ref_used (piecewise)")
     axes[4].set_xlabel("time [s]")
     axes[4].set_ylabel("thetadot [rad/s]")
     axes[4].legend()

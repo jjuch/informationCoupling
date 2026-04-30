@@ -51,6 +51,32 @@
       "min_count": 25
     },
 
+    "mpc": {
+      "enabled": false,
+      "solve_every": 1,
+      "w_enable": 0.35,
+      "w_disable": 0.20,
+      "blend_w0": 0.25,
+      "blend_w1": 0.60,
+      "pre_deg": 15,
+
+      "N": 15,
+      "dt": 0.05,
+      "n_sub": 2,
+      "iters": 4,
+      "pop": 150,
+      "elite_frac": 0.15,
+      "init_sigma": 5.0,
+
+      "w_theta": 150.0,
+      "w_thdot": 30.0,
+      "w_u": 0.05,
+      "w_du": 8.0,
+      "w_exit_theta": 150.0,
+      "w_exit_thdot": 30.0,
+      "w_exit_energy": 8.0
+      },
+
     "plots": {
       "show": true,
       "fft_max_hz": 6.0
@@ -88,12 +114,13 @@
           "enabled": true,
           "K_smc_sing": 20.0,
           "freeze_ff": true,
-          "kd_sing": 4.0
+          "kd_sing": 4.0,
+          "deg_zone": 20.0
         },
         "controller":{
           "lambda_mult": 1.0,
-          "K_smc": 65.0,
-          "Kphi_p": 0.9,
+          "K_smc": 150.0,
+          "Kphi_p": 0.2,
           "Kphi_d": 0.7,
           "eps_inv": 0.005,
           "phi_s": 0.15,
@@ -103,7 +130,7 @@
         "phi_ref": {
           "enabled": true,
           "type": "sin_with_decay_freq_decay",
-          "scale": 0.30,
+          "scale": 0.50,
           "omega_lo_mult": 1.0,
           "omega_hi_mult": 1.5,
           "tau_omega": 5.0,
@@ -111,7 +138,34 @@
         },
         "theta_ref": {
           "phase": 1.3
+        },"mpc": {
+          "enabled": true,
+          "solve_every": 1,
+          "w_enable": 0.35,
+          "w_disable": 0.20,
+          "blend_w0": 0.25,
+          "blend_w1": 0.60,
+          "pre_deg": 25,
+          "u_max_override": 50.0,
+
+          "N": 20,
+          "N_max": 100,
+          "dt": 0.01,
+          "n_sub": 2,
+          "iters": 4,
+          "pop": 150,
+          "elite_frac": 0.15,
+          "init_sigma": 5.0,
+
+          "w_theta": 150.0,
+          "w_thdot": 30.0,
+          "w_u": 0.05,
+          "w_du": 8.0,
+          "w_exit_theta": 150.0,
+          "w_exit_thdot": 100.0, 
+          "w_exit_energy": 8.0
         }
+
       }
     }
   ]
