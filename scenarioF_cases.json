@@ -1,0 +1,64 @@
+{
+  "defaults": {
+    "dt": 0.005,
+    "n_sub": 5,
+    "T_total": 20.0,
+    "T_burn": 0.5,
+
+    "theta": {
+      "A": 2.0943951023931953,
+      "omega_mode": "small_angle",
+      "omega_scaling": 1.0
+    },
+
+    "vhc": {
+      "kp": 20.0,
+      "kd": 8.0,
+      "a_phi": 0.5
+    },
+
+    "orbit": {
+        "ks": 10.0,
+        "ksd": 15.0,
+        "kE": 120.0,
+        "k_align": 0.5,
+        "deficit_scale": 0.15,
+        "v_align_frac": 0.30,
+        "v_max": 100.0
+    },
+
+    "limits": {
+      "u_max": 100.0
+    },
+
+    "coupling": {
+      "eps": 1e-6,
+      "norm": "sv",
+      "perturb": "basis",
+      "nbins": 31,
+      "min_count": 252
+    },
+
+    "plots": {
+      "show": true,
+      "fft_max_hz": 6
+    }
+  },
+
+  "cases": [
+    {
+      "kappa": 0.0,
+      "G_shape": "const",
+      "note": "Scenario F baseline: dynamic VHC + orbit stabilizer, kappa=0"
+    },
+    {
+      "kappa": 0.09,
+      "G_shape": "sin_MSM",
+      "note": "Scenario F with mass-shaped skew coupling",
+      "overrides": {
+        "limits": { "u_max": 30.0 },
+        "orbit": { "kw": 3.5 }
+      }
+    }
+  ]
+}

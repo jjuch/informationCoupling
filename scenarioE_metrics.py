@@ -1,5 +1,5 @@
 import numpy as np
-from furuta_model import rhs_continuous, rk4_step
+from furuta_model import rhs_continuous, rk4_step, b_theta_true
 from coupling_metrics import structural_coupling_metrics, compute_theta_binned_maps
 
 
@@ -25,11 +25,14 @@ def compute_structural_series(base, cfg, p):
     S_lin = np.full(N, np.nan, float)
     S_non = np.full(N, np.nan, float)
 
+    b0_true, b1_true = p.b0_nom, p.b1_nom
+    b_th = lambda th: b_theta_true(th, b0_true, b1_true)
+
     for i in range(N):
         out = structural_coupling_metrics(
             X[i], U[i], dt, n_sub, p, kappa,
             rhs_continuous, rk4_step,
-            eps=eps, norm=norm, perturb=perturb, G_shape=G_shape
+            eps=eps, norm=norm, perturb=perturb, G_shape=G_shape, b_theta_true=b_th
         )
         S_lin[i] = out["S_lin"]
         S_non[i] = out["S_nonlin"]

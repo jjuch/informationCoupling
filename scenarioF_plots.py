@@ -1,43 +1,9 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
 from furuta_model import wrap_center
 
-
-MODE_COLORS = {
-    0: (0.8, 0.9, 1.0, 0.25),  # pump
-    1: (0.8, 1.0, 0.8, 0.20),  # smc
-    2: (1.0, 0.85, 0.7, 0.30), # mpc up
-    3: (1.0, 0.7, 0.7, 0.30)   # mpc down
-}
-
-MODE_LABELS = {
-    0: "PUMP",
-    1: "SMC",
-    2: "MPC_UP",
-    3: "MPC_DOWN"
-}
-
-
 def theta_dev(theta):
     return wrap_center(theta, np.pi) - np.pi
-
-
-def _segments_from_mode(t, mode, value):
-    m = (mode == value)
-    idx = np.where(m)[0]
-    if idx.size == 0:
-        return []
-    breaks = np.where(np.diff(idx) > 1)[0]
-    starts = np.r_[idx[0], idx[breaks+1]]
-    ends = np.r_[idx[breaks], idx[-1]]
-    return [(t[a], t[b]) for a,b in zip(starts, ends)]
-
-def shade_modes(ax, t, mode):
-    for v, col in MODE_COLORS.items():
-        for a,b in _segments_from_mode(t, mode, v):
-            ax.axvspan(a, b, color=col, lw=0)
-
 
 def _autoscale_y_on_visible_x(ax, margin=0.08):
     """
@@ -76,95 +42,73 @@ def _autoscale_y_on_visible_x(ax, margin=0.08):
     ax.set_ylim(ymin, ymax)
 
 
-
-def plot_states_with_refs(base, cfg, meta_title="Scenario E"):
-    
-    """
-    5 stacked subplots:
-      1) u
-      2) phi and phi_ref
-      3) theta-pi and theta_ref-pi
-      4) phidot and phidot_ref
-      5) thetadot and thetadot_ref
-
-      - Shared x-axis (zoom/pan sync).
-      - Y-axis autoscale per subplot to the visible time window.
-      - Shaded regions where singular zone is active (base['SING']).
-    """
-
+def plot_states_with_refs(base, cfg, meta_title="Scenario F"):
     t = base["t"]
     X = base["X"]
+    Z = base["Z"]
     U = base["U"]
-    mode = base.get("MODE", np.zeros_like(t, dtype=int))
-
-    PHREF = base.get("PHREF", np.full_like(t, np.nan))
-    PHDREF = base.get("PHDREF", np.full_like(t, np.nan))
-    ETAREF = base.get("ETAREF", np.full_like(t, np.nan))
-    ETADOTREF = base.get("ETADOTREF", np.full_like(t, np.nan))
-
+    V = base["V"]
+    omega = float(np.nanmedian(base["omega"]))
     A = float(cfg["theta"]["A"])
 
-    fig, axes = plt.subplots(
-        5, 1, figsize=(11, 10),
-        sharex=True,
-        constrained_layout=True
-    )
+    # two convenient refs:
+    # 1) nominal VHC shape vs phi: theta = pi + A sin(phi)
+    th_ref_phi = np.pi + A * np.sin(X[:, 0])
+    # 2) time ref for visualization only: pi + A sin(omega t + phase0)
+    phase0 = float(np.arcsin(np.clip(theta_dev(X[0, 1]) / max(1e-9, A), -1.0, 1.0)))
+    th_ref_t = np.pi + A * np.sin(omega * t + phase0)
+
+    fig, axes = plt.subplots(6, 1, figsize=(11, 11), sharex=True, constrained_layout=True)
 
     # 1) u
     axes[0].plot(t, U, lw=1.0)
     axes[0].set_ylabel("u [Nm]")
     axes[0].grid(True, alpha=0.3)
-    shade_modes(axes[0], t, mode)
 
-
-    # 2) phi
-    axes[1].plot(t, X[:,0], lw=1.2, label="phi")
-    axes[1].plot(t, PHREF, lw=1.0, ls="--", label="phi_ref")
-    axes[1].set_ylabel("phi [rad]")
-    axes[1].legend()
+    # 2) V
+    axes[1].plot(t, V, lw=1.0)
+    axes[1].set_ylabel("v (= sddot)")
     axes[1].grid(True, alpha=0.3)
-    shade_modes(axes[1], t, mode)
 
-
-    # 3) theta-pi
-    eta = theta_dev(X[:,1])
-    axes[2].plot(t, eta, lw=1.2, label="theta-pi")
-    axes[2].plot(t, ETAREF, lw=1.0, ls="--", label="eta_ref (SMC)")
-    axes[2].axhline(+A, ls=":", alpha=0.6)
-    axes[2].axhline(-A, ls=":", alpha=0.6)
-    axes[2].axhline(+np.pi/2, ls="--", alpha=0.3)
-    axes[2].axhline(-np.pi/2, ls="--", alpha=0.3)
-    axes[2].set_ylabel("theta-pi [rad]")
+    # 3) phi / phidot
+    axes[2].plot(t, X[:, 0], lw=1.2, label="phi")
+    axes[2].plot(t, X[:, 2], lw=1.0, ls="--", label="phidot")
     axes[2].legend()
+    axes[2].set_ylabel("phi / phidot")
     axes[2].grid(True, alpha=0.3)
-    shade_modes(axes[2], t, mode)
 
-    # 4) phidot
-    axes[3].plot(t, X[:,2], lw=1.2, label="phidot")
-    axes[3].plot(t, PHDREF, lw=1.0, ls="--", label="phidot_ref")
-    axes[3].set_ylabel("phidot [rad/s]")
+    
+    axes[3].plot(t, theta_dev(X[:, 1]), lw=1.2, label="theta-pi")
+    axes[3].plot(t, theta_dev(th_ref_phi), lw=1.0, ls="--", label="ref (via phi)")
+    axes[3].plot(t, theta_dev(th_ref_t), lw=0.9, ls=":", label="ref (via time)")
+    axes[3].axhline(+A, ls=":", alpha=0.4)
+    axes[3].axhline(-A, ls=":", alpha=0.4)
     axes[3].legend()
+    axes[3].set_ylabel("theta-pi [rad]")
     axes[3].grid(True, alpha=0.3)
-    shade_modes(axes[3], t, mode)
 
-
-    # 5) thetadot
-    axes[4].plot(t, X[:,3], lw=1.2, label="thetadot")
-    axes[4].plot(t, ETADOTREF, lw=1.0, ls="--", label="eta_dot_ref (SMC)")
-    axes[4].set_xlabel("time [s]")
-    axes[4].set_ylabel("thetadot [rad/s]")
+    axes[4].plot(t, Z[:, 4], lw=1.2, label="s")
+    axes[4].plot(t, Z[:, 5], lw=1.2, label="sdot")
     axes[4].legend()
+    axes[4].set_ylabel("s, sdot")
     axes[4].grid(True, alpha=0.3)
-    shade_modes(axes[4], t, mode)
 
+    axes[5].plot(t, base["E"], lw=1.2, label="e")
+    axes[5].plot(t, base["ED"], lw=1.2, label="ed")
+    axes[5].legend()
+    axes[5].set_xlabel("time [s]")
+    axes[5].set_ylabel("e, ed")
+    axes[5].grid(True, alpha=0.3)
 
-    fig.suptitle(meta_title, y=1.02)
+    fig.suptitle(meta_title, y=0.99)
 
     # ---- Initial y autoscale (full range) ----
     for ax in axes:
         ax.relim()
         ax.autoscale_view()
 
+    # ---- Dynamic y autoscale when x-limits change (zoom/pan) ----
+    _in_callback = {"busy": False}
     # ---- Dynamic y autoscale when x-limits change (zoom/pan) ----
     _in_callback = {"busy": False}
 
@@ -187,7 +131,6 @@ def plot_states_with_refs(base, cfg, meta_title="Scenario E"):
     _on_xlim_changed(axes[0])
 
     plt.show()
-
 
 
 def plot_Snonlin_vs_theta_compare(maps0, maps1, label0, label1):

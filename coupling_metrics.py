@@ -66,14 +66,14 @@ def plant_step_substeps(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, b_t
     return x
 
 
-def jacobian_discrete_step(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, eps=1e-6, G_shape='const'):
+def jacobian_discrete_step(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, eps=1e-6, G_shape='const', b_theta_true=None):
     """Numerical Jacobian of one-step map Phi(x,u) w.r.t. x using central differences."""
     x = np.asarray(x, dtype=float)
     n = x.size
     J = np.zeros((n, n), dtype=float)
 
     def Phi(xx):
-        return plant_step_substeps(xx, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, G_shape=G_shape)
+        return plant_step_substeps(xx, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, G_shape=G_shape, b_theta_true=b_theta_true)
 
     for i in range(n):
         dx = np.zeros(n)
@@ -84,7 +84,7 @@ def jacobian_discrete_step(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, 
     return J
 
 
-def structural_coupling_metrics(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, eps=1e-6, norm='sv', perturb='basis', G_shape='const'):
+def structural_coupling_metrics(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, eps=1e-6, norm='sv', perturb='basis', G_shape='const', b_theta_true=None):
     """Compute structural coupling at (x,u).
 
     Returns a dict with:
@@ -97,7 +97,7 @@ def structural_coupling_metrics(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_s
     """
     x = np.asarray(x, dtype=float)
 
-    J = jacobian_discrete_step(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, eps=eps, G_shape=G_shape)
+    J = jacobian_discrete_step(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, eps=eps, G_shape=G_shape, b_theta_true=b_theta_true)
     x1_idx = [0, 2]
     x2_idx = [1, 3]
     J12 = J[np.ix_(x1_idx, x2_idx)]
@@ -111,7 +111,7 @@ def structural_coupling_metrics(x, u, dt, n_sub, p, kappa, rhs_continuous, rk4_s
 
     # Nonlinear perturbation gain
     def Phi(xx):
-        return plant_step_substeps(xx, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, G_shape=G_shape)
+        return plant_step_substeps(xx, u, dt, n_sub, p, kappa, rhs_continuous, rk4_step, G_shape=G_shape, b_theta_true=b_theta_true)
 
     x_next = Phi(x)
     x1_next = x_next[x1_idx]

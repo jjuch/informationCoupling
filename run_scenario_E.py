@@ -37,10 +37,6 @@ def case_paths(data_dir: Path, kappa: float, G_shape: str, cfg_hash: str):
     return (data_dir / f"E_data_{tag}.npz", data_dir / f"E_data_{tag}.json")
 
 
-
-
-
-
 # ============================================================
 # Closed-loop RK4 step
 # ============================================================
@@ -104,8 +100,6 @@ def run_or_load_case(cases_cfg, kappa, G_shape, data_dir: Path, show_plots=True,
 
     # simulate
     base, cfg_used = simulate_closed_loop(cfg)
-    print("cfg_used: ", cfg_used)
-
     
     if show_plots and cfg_used["plots"]["show"]:
         plot_states_with_refs(base, cfg_used, meta_title=f"Scenario E kappa={kappa}, {G_shape}")
@@ -125,7 +119,7 @@ def run_or_load_case(cases_cfg, kappa, G_shape, data_dir: Path, show_plots=True,
     base["counts"] = maps["counts"]
 
     meta = {
-        "scenario": "E_orbit_tracking_FF_SMC",
+        "scenario": "E_hybrid_pump_smc_mpc",
         "kappa": float(kappa),
         "G_shape": G_shape,
         "cfg_hash": cfg_hash,
@@ -145,7 +139,7 @@ def main():
 
     # Baseline stabilized orbit
     print("==== run kappa 0.0 ====")
-    base0, meta0, cfg0 = run_or_load_case(cases_cfg, 0.0, "const", data_dir, show_plots=True, hash_overwrite="f337ab48")
+    base0, meta0, cfg0 = run_or_load_case(cases_cfg, 0.0, "const", data_dir, show_plots=True, hash_overwrite=None)
 
     # Test case: kappa=0.09, sin_MSM
     print("==== run kappa 0.09 ====")
